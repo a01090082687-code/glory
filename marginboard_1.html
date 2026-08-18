@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>마진보드 - 판매·마진 자동 분석</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --surface-2:      #ffffff;
+    --page-plane:     #f2f1ee;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --status-good:      #0ca30c;
+    --status-warning:   #fab219;
+    --status-serious:   #ec835a;
+    --status-critical:  #d03b3b;
+    --sidebar-bg: #14161a;
+    --sidebar-fg: #cfd2d8;
+    --sidebar-fg-dim: #7d818a;
+    --sidebar-active: #ffffff;
+    --sidebar-accent: #3987e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --surface-2:#202020; --page-plane:#0d0d0d;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --gridline:#2c2c2a; --baseline:#383835; --border: rgba(255,255,255,0.10);
+      --series-1:#3987e5; --series-2:#d95926;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2:#202020; --page-plane:#0d0d0d;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --gridline:#2c2c2a; --baseline:#383835; --border: rgba(255,255,255,0.10);
+    --series-1:#3987e5; --series-2:#d95926;
+  }
+  * { box-sizing:border-box; }
+  html,body{ height:100%; margin:0; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--page-plane); color:var(--text-primary); }
+
+  .app { display:flex; min-height:100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar { width:230px; flex:none; background:var(--sidebar-bg); color:var(--sidebar-fg); display:flex; flex-direction:column; padding:20px 14px; }
+  .brand { display:flex; align-items:center; gap:9px; padding:6px 8px 22px; }
+  .brand .mark { width:26px; height:26px; border-radius:8px; background:linear-gradient(135deg,#3987e5,#2a78d6); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; color:#fff; }
+  .brand .name { font-size:15px; font-weight:700; color:#fff; }
+  .brand .sub { font-size:10px; color:var(--sidebar-fg-dim); margin-top:1px; }
+
+  .steps { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+  .step-btn { display:flex; align-items:center; gap:11px; padding:11px 10px; border-radius:10px; border:none; background:none; color:var(--sidebar-fg); font-size:13px; font-weight:600; cursor:pointer; text-align:left; }
+  .step-btn .num { width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-size:11px; flex:none; }
+  .step-btn.active { background:rgba(57,135,229,0.18); color:#fff; }
+  .step-btn.active .num { background:var(--sidebar-accent); color:#fff; }
+  .step-btn.done .num { background:var(--status-good); color:#fff; }
+  .step-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .step-btn small { display:block; font-weight:400; color:var(--sidebar-fg-dim); font-size:10.5px; margin-top:1px; }
+
+  .sidebar-status { margin-top:auto; padding:12px 10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:var(--sidebar-fg-dim); line-height:1.7; }
+  .sidebar-status b { color:#fff; }
+  .reset-btn { margin-top:10px; width:100%; padding:7px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:none; color:var(--sidebar-fg); font-size:11px; cursor:pointer; }
+
+  /* ---------- Main ---------- */
+  .main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; padding:16px 28px; border-bottom:1px solid var(--border); background:var(--surface-1); }
+  .topbar h1 { font-size:16px; margin:0; font-weight:700; }
+  .topbar .desc { font-size:12px; color:var(--text-muted); margin-top:2px; }
+  .theme-toggle { border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); border-radius:999px; padding:6px 14px; font-size:12px; cursor:pointer; }
+  .content { flex:1; padding:26px 28px 60px; max-width:1180px; }
+
+  .card { background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:20px 22px; margin-bottom:16px; }
+  .card-title { font-size:14.5px; font-weight:700; margin:0 0 3px; }
+  .card-desc { font-size:12px; color:var(--text-muted); margin:0 0 14px; }
+
+  .btn { border:none; border-radius:9px; padding:9px 16px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:var(--series-1); color:#fff; }
+  .btn-secondary { background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+
+  .dropzone { border:2px dashed var(--border); border-radius:14px; padding:38px 20px; text-align:center; cursor:pointer; transition:.15s; }
+  .dropzone.drag { border-color:var(--series-1); background:color-mix(in srgb, var(--series-1) 6%, transparent); }
+  .dropzone .icon { font-size:30px; margin-bottom:8px; }
+  .dropzone .main-txt { font-size:13.5px; font-weight:600; margin-bottom:3px; }
+  .dropzone .sub-txt { font-size:11.5px; color:var(--text-muted); }
+
+  .file-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid var(--border); border-radius:10px; margin-top:10px; }
+  .file-row .fname { font-size:12.5px; font-weight:600; }
+  .file-row .fmeta { font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .file-row .actions { display:flex; gap:8px; align-items:center; }
+  .chip { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; }
+  .chip.ok { background:color-mix(in srgb, var(--status-good) 15%, transparent); color:var(--status-good); }
+  .chip.pending { background:color-mix(in srgb, var(--status-warning) 22%, transparent); color:#a66a00; }
+  .icon-btn { border:none; background:none; color:var(--text-muted); cursor:pointer; font-size:15px; }
+
+  .mapping-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .field label { font-size:11px; color:var(--text-secondary); font-weight:600; }
+  select, input[type=text], input[type=number] { padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--page-plane); color:var(--text-primary); font-size:12.5px; }
+
+  .preview-table-wrap { max-height:210px; overflow:auto; border:1px solid var(--border); border-radius:10px; margin-top:10px; }
+  table.plain { width:100%; border-collapse:collapse; font-size:11.5px; }
+  table.plain th, table.plain td { padding:6px 9px; border-bottom:1px solid var(--gridline); text-align:left; white-space:nowrap; }
+  table.plain th { background:var(--surface-2); position:sticky; top:0; color:var(--text-muted); font-weight:600; }
+  table.plain tr.header-row-choice { cursor:pointer; }
+  table.plain tr.header-row-choice.selected td { background:color-mix(in srgb, var(--series-1) 12%, transparent); font-weight:700; }
+  table.plain tr.header-row-choice:hover td { background:var(--page-plane); }
+
+  .banner { border:1px solid var(--border); border-left:4px solid var(--status-warning); border-radius:10px; padding:11px 15px; font-size:12px; color:var(--text-secondary); margin-bottom:14px; line-height:1.6; }
+  .banner.info { border-left-color:var(--series-1); }
+  .banner b { color:var(--text-primary); }
+
+  .empty-state { text-align:center; padding:60px 20px; color:var(--text-muted); }
+  .empty-state .big { font-size:15px; font-weight:700; color:var(--text-primary); margin-bottom:6px; }
+  .empty-state .btn { margin-top:16px; }
+
+  /* ledger table */
+  .search-input { width:100%; max-width:280px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--page-plane); color:var(--text-primary); font-size:12.5px; margin-bottom:12px; }
+  .table-scroll { max-height:560px; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+  table.datatable { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.datatable th, table.datatable td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--gridline); }
+  table.datatable th { color:var(--text-muted); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; position:sticky; top:0; background:var(--surface-1); cursor:pointer; user-select:none; white-space:nowrap; }
+  table.datatable td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  table.datatable td input { width:90px; padding:5px 7px; font-size:12px; border-radius:6px; }
+  table.datatable tr.missing-cost { background: color-mix(in srgb, var(--status-warning) 8%, transparent); }
+  table.datatable tr:last-child td { border-bottom:none; }
+
+  .badge { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; white-space:nowrap; }
+  .badge.critical { color:var(--status-critical); background:color-mix(in srgb, var(--status-critical) 12%, transparent); }
+  .badge.serious { color:var(--status-serious); background:color-mix(in srgb, var(--status-serious) 15%, transparent); }
+  .badge.warning { color:#a66a00; background:color-mix(in srgb, var(--status-warning) 20%, transparent); }
+  .badge.good { color:var(--status-good); background:color-mix(in srgb, var(--status-good) 12%, transparent); }
+  .badge.neutral { color:var(--text-muted); background:var(--page-plane); }
+  .badge::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+  /* dashboard reuse */
+  .kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:16px; }
+  @media (max-width:980px){ .kpi-row{ grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:560px){ .kpi-row{ grid-template-columns:repeat(2,1fr);} }
+
+  /* ---------- 모바일: 사이드바를 상단 바로 접기 ---------- */
+  @media (max-width:760px){
+    .app { flex-direction:column; }
+    .sidebar { width:100%; flex:none; flex-direction:row; align-items:center; padding:10px 12px; gap:10px; overflow-x:auto; }
+    .brand { padding:0; flex:none; }
+    .brand .sub { display:none; }
+    .steps { flex-direction:row; margin-top:0; gap:4px; flex:none; }
+    .step-btn { padding:6px 8px; }
+    .step-btn span:not(.num) { display:none; }
+    .step-btn .num { width:20px; height:20px; font-size:11px; }
+    .sidebar-status { display:none; }
+    .reset-btn { margin:0 0 0 auto; width:auto; flex:none; padding:6px 9px; font-size:10px; white-space:nowrap; }
+    .topbar { padding:12px 14px; flex-wrap:wrap; row-gap:8px; }
+    .content { padding:16px 14px 40px; }
+    .card { padding:16px; }
+  }
+  .kpi-card { background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:14px 14px 12px; }
+  .kpi-label { font-size:11.5px; color:var(--text-secondary); margin-bottom:7px; }
+  .kpi-value { font-size:19px; font-weight:700; letter-spacing:-0.01em; white-space:nowrap; }
+  .kpi-value.critical { color:var(--status-critical); }
+
+  nav.tabs { display:flex; gap:4px; margin: 4px 0 18px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  nav.tabs button { border:none; background:none; color:var(--text-secondary); font-size:13px; font-weight:600; padding:10px 14px; cursor:pointer; border-bottom:2px solid transparent; }
+  nav.tabs button.active { color:var(--series-1); border-bottom-color:var(--series-1); }
+  .tabpanel { display:none; }
+  .tabpanel.active { display:block; }
+  .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  .seg { display:flex; gap:4px; background:var(--page-plane); border:1px solid var(--border); border-radius:999px; padding:3px; }
+  .seg button { border:none; background:none; color:var(--text-secondary); font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:999px; cursor:pointer; }
+  .seg button.active { background:var(--series-1); color:#fff; }
+  svg { overflow:visible; font-family:inherit; }
+  .axis-label { fill:var(--text-muted); font-size:10.5px; }
+  .bar-value-label { fill:var(--text-primary); font-size:11px; font-weight:600; }
+  .bar-name-label { fill:var(--text-secondary); font-size:11.5px; }
+  .gridline { stroke:var(--gridline); stroke-width:1; }
+  .baseline { stroke:var(--baseline); stroke-width:1; }
+  .legend { display:flex; gap:16px; font-size:11.5px; color:var(--text-secondary); margin-bottom:10px; }
+  .legend .dot { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+  .platform-compare { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom: 14px; }
+  @media (max-width:640px){ .platform-compare{ grid-template-columns:1fr; } }
+  .pf-card { border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .pf-name { font-size:13px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:7px; }
+  .pf-name .dot { width:10px; height:10px; border-radius:3px; }
+  .pf-row { display:flex; justify-content:space-between; font-size:12.5px; padding:5px 0; border-bottom:1px dashed var(--gridline); }
+  .pf-row:last-child { border-bottom:none; }
+  .pf-row .v { font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .tooltip { position:fixed; pointer-events:none; background:var(--text-primary); color:var(--surface-1); font-size:11.5px; padding:7px 10px; border-radius:8px; opacity:0; transition:opacity .1s; z-index:50; line-height:1.5; white-space:nowrap; }
+  .tooltip.show { opacity:1; }
+
+  footer.hint { font-size:11px; color:var(--text-muted); line-height:1.8; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">M</div>
+      <div><div class="name">마진보드</div><div class="sub">쿠팡·스마트스토어 판매관리</div></div>
+    </div>
+    <div class="steps">
+      <button class="step-btn active" id="nav-upload" data-view="upload"><span class="num">1</span><span>데이터 업로드<small>판매내역 엑셀 넣기</small></span></button>
+      <button class="step-btn" id="nav-ledger" data-view="ledger" disabled><span class="num">2</span><span>원가장부<small>상품별 원가·재고</small></span></button>
+      <button class="step-btn" id="nav-dashboard" data-view="dashboard" disabled><span class="num">3</span><span>대시보드<small>자동 계산 결과</small></span></button>
+    </div>
+    <div class="sidebar-status" id="sidebarStatus">아직 업로드된 데이터가 없습니다.</div>
+    <button class="reset-btn" id="resetBtn">전체 초기화</button>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="topTitle">1단계 · 판매내역 업로드</h1>
+        <div class="desc" id="topDesc">쿠팡·스마트스토어에서 받은 엑셀 파일을 그대로 올리세요. 형식은 자동으로 인식합니다.</div>
+      </div>
+      <button class="theme-toggle" id="themeToggle">다크 모드</button>
+    </div>
+    <div class="content">
+
+      <!-- ============ VIEW: UPLOAD ============ -->
+      <section id="view-upload">
+        <div class="card">
+          <p class="card-title">판매내역 엑셀 업로드</p>
+          <p class="card-desc">여러 개(쿠팡+네이버 등) 한 번에 올릴 수 있습니다. 형식은 자동 인식하고, 인식 안 되면 직접 지정할 수 있어요.</p>
+          <div class="dropzone" id="dropzone">
+            <div class="icon">📄</div>
+            <div class="main-txt">여기로 파일을 끌어다 놓거나 클릭해서 선택하세요</div>
+            <div class="sub-txt">.xlsx / .xls / .csv 지원</div>
+          </div>
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple style="display:none">
+          <div id="fileList"></div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="sampleBtn">샘플 데이터로 체험하기</button>
+          </div>
+        </div>
+
+        <div class="card" id="mappingCard" style="display:none">
+          <p class="card-title">컬럼 확인 <span id="mappingFileName" style="color:var(--text-muted); font-weight:400;"></span></p>
+          <p class="card-desc">헤더(제목) 행을 클릭해서 지정하고, 아래에서 각 항목이 어느 열인지 확인하세요. 자동으로 최대한 맞춰뒀습니다.</p>
+          <div class="preview-table-wrap"><table class="plain" id="previewTable"></table></div>
+          <div class="mapping-grid" id="mappingGrid"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="applyMappingBtn">이 설정으로 적용</button>
+            <button class="btn btn-secondary" id="cancelMappingBtn">취소</button>
+          </div>
+        </div>
+
+        <div class="btn-row" id="toLedgerRow" style="display:none">
+          <button class="btn btn-primary" id="toLedgerBtn">다음: 원가장부 확인 →</button>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: LEDGER ============ -->
+      <section id="view-ledger" style="display:none">
+        <div class="banner info">
+          <b>원가장부란?</b> 업로드한 파일에 원가가 없는 상품은 마진을 계산할 수 없어요. 아래 표에서 원가만 채워주면 나머지는 자동 계산됩니다.
+          작업한 내용은 <b>"장부 저장"</b>으로 파일로 내려받아 다음에 <b>"장부 불러오기"</b>로 이어서 쓸 수 있어요.
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <p class="card-title">상품별 원가·재고</p>
+              <p class="card-desc" id="ledgerDesc">-</p>
+            </div>
+            <div class="btn-row" style="margin-top:0">
+              <button class="btn btn-secondary" id="loadLedgerBtn">장부 불러오기</button>
+              <button class="btn btn-secondary" id="saveLedgerBtn">장부 저장</button>
+              <input type="file" id="ledgerFileInput" accept=".json" style="display:none">
+            </div>
+          </div>
+          <input type="text" class="search-input" id="ledgerSearch" placeholder="상품명 검색...">
+          <div class="table-scroll">
+            <table class="datatable" id="ledgerTable"></table>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="toDashboardBtn">다음: 대시보드 보기 →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: DASHBOARD ============ -->
+      <section id="view-dashboard" style="display:none">
+        <div class="banner" id="dataQualityBanner" style="display:none"></div>
+
+        <div class="kpi-row">
+          <div class="kpi-card"><div class="kpi-label">총 매출</div><div class="kpi-value" id="kpiRevenue"></div></div>
+          <div class="kpi-card"><div class="kpi-label">총 마진</div><div class="kpi-value" id="kpiMargin"></div></div>
+          <div class="kpi-card"><div class="kpi-label">마진율(매출대비)</div><div class="kpi-value" id="kpiRate"></div></div>
+          <div class="kpi-card"><div class="kpi-label">판매수량</div><div class="kpi-value" id="kpiQty"></div></div>
+          <div class="kpi-card"><div class="kpi-label">주문건수</div><div class="kpi-value" id="kpiOrders"></div></div>
+          <div class="kpi-card"><div class="kpi-label">역마진 상품</div><div class="kpi-value critical" id="kpiNeg"></div></div>
+        </div>
+
+        <nav class="tabs">
+          <button class="tab-btn active" data-tab="summary">요약</button>
+          <button class="tab-btn" data-tab="top">TOP 상품 · 재매입</button>
+          <button class="tab-btn" data-tab="warning">역마진 경고</button>
+          <button class="tab-btn" data-tab="all">전체 상품</button>
+        </nav>
+
+        <div class="tabpanel active" id="tab-summary">
+          <div class="card">
+            <p class="card-title">플랫폼 비교</p>
+            <p class="card-desc">업로드된 파일 기준 플랫폼별 비교</p>
+            <div class="platform-compare" id="platformCompare"></div>
+            <div class="legend" id="platformLegend"></div>
+            <div id="platformBar"></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" id="tab-top">
+          <div class="card">
+            <div class="card-head">
+              <div><p class="card-title">TOP 상품</p><p class="card-desc">막대에 마우스를 올리면 상세 정보 확인</p></div>
+              <div class="seg" id="topSeg"><button class="active" data-metric="margin">총마진 기준</button><button data-metric="qty">판매량 기준</button></div>
+            </div>
+            <div class="legend" id="topLegend"></div>
+            <div id="barChart"></div>
+          </div>
+          <div class="card">
+            <p class="card-title">재매입 우선순위</p>
+            <p class="card-desc">총마진이 큰(=가장 많이 벌어준) 순서 · 역마진 상품은 제외</p>
+            <div class="table-scroll" style="max-height:480px"><table class="datatable" id="reorderTable"></table></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" id="tab-warning">
+          <div class="card">
+            <p class="card-title" id="negTitle">역마진 · 저마진 상품</p>
+            <p class="card-desc">팔수록 손해이거나 마진이 거의 없는 상품 · 판매가 또는 원가 재검토 필요</p>
+            <div class="table-scroll" style="max-height:560px"><table class="datatable" id="negTable"></table></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" id="tab-all">
+          <div class="card">
+            <p class="card-title" id="allTitle">전체 상품</p>
+            <p class="card-desc">상품명 검색, 열 제목 클릭으로 정렬</p>
+            <input type="text" class="search-input" id="allSearch" placeholder="상품명 검색...">
+            <div class="table-scroll"><table class="datatable" id="allTable"></table></div>
+          </div>
+        </div>
+
+        <footer class="hint">모든 계산은 업로드한 원본 데이터를 그대로 집계한 것이며, 브라우저 안에서만 처리됩니다(서버로 전송되지 않음).</footer>
+      </section>
+
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+/* ========================= 상태 ========================= */
+const APP = { files: [], ledger: {}, usingSample: false, pendingParse: null };
+const SAMPLE_ROWS = [{"platform": "네이버", "name": "아르다오 푸러샷 마그네슘 스프레이", "orders": 20, "qty": 22, "amount": 653500, "cost": 565428, "fee": 34635.500000000015}, {"platform": "네이버", "name": "비렌느 스팟 엑스 15ml", "orders": 21, "qty": 21, "amount": 644480, "cost": 564270, "fee": 34157.439999999995}, {"platform": "네이버", "name": "디크솔 큐라스팟 15ml", "orders": 20, "qty": 21, "amount": 655990, "cost": 598900, "fee": 34767.469999999994}, {"platform": "네이버", "name": "류마픽스 마그네핏 패치 10매", "orders": 12, "qty": 15, "amount": 448500, "cost": 342615, "fee": 23770.500000000004}, {"platform": "네이버", "name": "오퓨롬 식이섬유정 맥스 600mg x 60정", "orders": 11, "qty": 14, "amount": 365400, "cost": 306428, "fee": 19366.199999999997}, {"platform": "네이버", "name": "대웅제약 합쎈 종합영양제 880mg X 60캡슐", "orders": 8, "qty": 13, "amount": 566020, "cost": 515068, "fee": 29999.059999999998}, {"platform": "네이버", "name": "지엠바이오 파이토케미컬 파우더 식이섬유 3g x 30포", "orders": 8, "qty": 11, "amount": 357150, "cost": 245353, "fee": 18928.95}, {"platform": "네이버", "name": "8APM 딥 나잇 멜라시럽 식물성 액상 멜라토닌 3mg 20포", "orders": 8, "qty": 10, "amount": 297000, "cost": 258650, "fee": 15476}, {"platform": "네이버", "name": "포포라보 올인원 샴푸 450ml", "orders": 5, "qty": 8, "amount": 286200, "cost": 226600, "fee": 15168.600000000002}, {"platform": "네이버", "name": "에스테리브 마데큐놀 아크네 스팟 클리어 30ml", "orders": 8, "qty": 8, "amount": 231920, "cost": 197360, "fee": 12291.759999999998}, {"platform": "네이버", "name": "비에논 파이버 앰플 30ml", "orders": 6, "qty": 7, "amount": 248500, "cost": 218884, "fee": 13170.5}, {"platform": "네이버", "name": "1+1 아비브 어성초 테카 캡슐 세럼 50ml", "orders": 7, "qty": 7, "amount": 192500, "cost": 175406, "fee": 10202.5}, {"platform": "네이버", "name": "윙크걸 기름종이 파우더 다이소 판매 상품", "orders": 6, "qty": 7, "amount": 41930, "cost": 33720, "fee": 2222.29}, {"platform": "네이버", "name": "오드로이 모공수축크림  100ml 더블기획", "orders": 6, "qty": 6, "amount": 216400, "cost": 167988, "fee": 11469.2}, {"platform": "네이버", "name": "야오 스칼프 케어라운드 (브런트코랄)", "orders": 3, "qty": 6, "amount": 87000, "cost": 64392, "fee": 4611}, {"platform": "네이버", "name": "헤이그리니 데일리 비트베리 분말 3g x 14포 Hey Greeny", "orders": 5, "qty": 6, "amount": 126000, "cost": 109198, "fee": 6678}, {"platform": "네이버", "name": "로에르네 퍼밍 리프팅 캡슐 탄력 크림 50ml", "orders": 5, "qty": 6, "amount": 149100, "cost": 131152, "fee": 7902.3}, {"platform": "네이버", "name": "화장품 랜덤박스 럭키박스", "orders": 5, "qty": 5, "amount": 63500, "cost": 10600, "fee": 2438}, {"platform": "네이버", "name": "포뷰트 쉐이크 스프레이 하이퍼샴푸기획", "orders": 5, "qty": 5, "amount": 102000, "cost": 86200, "fee": 4478.5}, {"platform": "네이버", "name": "크리니크 치크 팝 발레리나 팝 퍼프2P + 립스틱", "orders": 5, "qty": 5, "amount": 133000, "cost": 121210, "fee": 7049}, {"platform": "네이버", "name": "디에제르 모식스 맥주효모 탈모완화 샴푸 500ml", "orders": 4, "qty": 4, "amount": 147600, "cost": 127628, "fee": 7822.8}, {"platform": "네이버", "name": "1+1 덴탈리스트 키토자생치약 잇몸 케어 치석 입냄새 고불소", "orders": 3, "qty": 4, "amount": 97600, "cost": 81272, "fee": 5172.8}, {"platform": "네이버", "name": "더마팩토리 나이아신아마이드 20% 세럼 80ml (한글에디션)", "orders": 4, "qty": 4, "amount": 55900, "cost": 44392, "fee": 2962.7}, {"platform": "네이버", "name": "네오메딕스 아쿠아젠 쇼그렌영양제 입마름 눈건조 히알루론산 아쿠아포뮬러 30정", "orders": 4, "qty": 4, "amount": 145560, "cost": 138380, "fee": 7714.679999999999}, {"platform": "네이버", "name": "블랑네이처 아크네 클렌징 폼 150ml+50mL", "orders": 4, "qty": 4, "amount": 80760, "cost": 79040, "fee": 4280.28}, {"platform": "네이버", "name": "푸드올로지 지중해 오일만 클렌즈 보조제+보틀", "orders": 3, "qty": 3, "amount": 80370, "cost": 66030, "fee": 4259.61}, {"platform": "네이버", "name": "로엔젤 헤븐젤 러브 수용성 마사지 젤 250ml", "orders": 3, "qty": 3, "amount": 120000, "cost": 107058, "fee": 6360}, {"platform": "네이버", "name": "블랑카우 올데이 쿨 선스프레이 120ml", "orders": 3, "qty": 3, "amount": 50490, "cost": 42060, "fee": 2675.9700000000003}, {"platform": "네이버", "name": "로다이브 어성초 9X 균제거트러블 제로 앰플 젤 클렌징 150ml", "orders": 2, "qty": 3, "amount": 63580, "cost": 55102, "fee": 3369.74}, {"platform": "네이버", "name": "바른생각 젤 스탠다드 150+50ml", "orders": 3, "qty": 3, "amount": 50100, "cost": 42609, "fee": 2655.3}, {"platform": "네이버", "name": "위프 탈취제 화이트 300G", "orders": 3, "qty": 3, "amount": 50100, "cost": 43041, "fee": 2655.3}, {"platform": "네이버", "name": "메디힐 마데카소사이드 에센셜 마스크 흔적 리페어 10매", "orders": 2, "qty": 3, "amount": 31500, "cost": 25924, "fee": 1669.5}, {"platform": "네이버", "name": "치젠트리 리프레쉬 스프레이 15ml", "orders": 3, "qty": 3, "amount": 81300, "cost": 73860, "fee": 4308.9}, {"platform": "네이버", "name": "프로티원 단백질 쉐이크 파우치 곡물맛 40g 7포", "orders": 1, "qty": 2, "amount": 71800, "cost": 24736, "fee": 3805.4}, {"platform": "네이버", "name": "블랑카우 모이스처 바디워시 500ml", "orders": 1, "qty": 2, "amount": 33980, "cost": 23120, "fee": 1800.94}, {"platform": "네이버", "name": "황진원 백수과피분말 수박과피추출물 시트룰린 200g", "orders": 2, "qty": 2, "amount": 73940, "cost": 62740, "fee": 3918.8199999999997}, {"platform": "네이버", "name": "미쟝센 컬링에센스 2X 230ML 네츄럴컬", "orders": 1, "qty": 2, "amount": 21400, "cost": 14946, "fee": 1134.2}, {"platform": "네이버", "name": "아이디얼포맨 퍼펙트 올인원 남자 로션 150ml+100ml+바디워시50ml+클렌징폼20ml", "orders": 2, "qty": 2, "amount": 43600, "cost": 37468, "fee": 2310.7999999999997}, {"platform": "네이버", "name": "닥터텅스 스마트 치실 27m 1개입 2개", "orders": 2, "qty": 2, "amount": 29600, "cost": 25412, "fee": 1568.8}, {"platform": "네이버", "name": "퓨렉신 코어포뮬러 우로비콘 1박스", "orders": 2, "qty": 2, "amount": 67600, "cost": 62240, "fee": 3582.7999999999997}, {"platform": "네이버", "name": "화장품 랜덤박스 럭키박스 에코백", "orders": 1, "qty": 1, "amount": 13500, "cost": 2120, "fee": 530}, {"platform": "네이버", "name": "로에르네 퓨어 톤업 선크림 50ml 무기자차 자외선차단제", "orders": 1, "qty": 1, "amount": 28380, "cost": 18120, "fee": 1504.1399999999999}, {"platform": "네이버", "name": "선택: 포들 밤투폼 단품", "orders": 1, "qty": 1, "amount": 26400, "cost": 17770, "fee": 1134.2}, {"platform": "네이버", "name": "소복비움 차전자피환 식이섬유 쾌변 숙변 변비 직빵 14포 1개", "orders": 1, "qty": 1, "amount": 19900, "cost": 12520, "fee": 1054.7}, {"platform": "네이버", "name": "색동서울 코직산 밀키토너 코직애씨드 나이아신아마이드 5% 200ml", "orders": 1, "qty": 1, "amount": 25100, "cost": 17465, "fee": 1330.3}, {"platform": "네이버", "name": "하이클로스킨 인텐스 스킨 리페어 젤 50ml", "orders": 1, "qty": 1, "amount": 78490, "cost": 68120, "fee": 4159.97}, {"platform": "네이버", "name": "아토나 효소 스프레이 배독 진정케어 250ml", "orders": 1, "qty": 1, "amount": 59000, "cost": 50342, "fee": 3127}, {"platform": "네이버", "name": "제이숲 실크 케라틴 단백질 샴푸 1L", "orders": 1, "qty": 1, "amount": 21900, "cost": 15544, "fee": 1160.7}, {"platform": "네이버", "name": "위시어 리얼크리스피 프로틴바 마카다미아초코 1박스 8개입", "orders": 1, "qty": 1, "amount": 22900, "cost": 16550, "fee": 1213.7}, {"platform": "네이버", "name": "블랑카우 모이스처 바디로션 500ml", "orders": 1, "qty": 1, "amount": 16990, "cost": 12620, "fee": 900.47}, {"platform": "네이버", "name": "테이지 시카트리 쉐이킹 글로우 선픽서 50ml", "orders": 1, "qty": 1, "amount": 19900, "cost": 15575, "fee": 1054.7}, {"platform": "네이버", "name": "레고트 주토피아2 루프 텀블러 600ml +텀꾸스티커 주디 라벤더", "orders": 1, "qty": 1, "amount": 26000, "cost": 21470, "fee": 1378}, {"platform": "네이버", "name": "그레터스 파스티유 스위스 목캔디 슈가프리 블랙커런트 110g", "orders": 1, "qty": 1, "amount": 19100, "cost": 15170, "fee": 1012.3}, {"platform": "네이버", "name": "한율 어린쑥 매끈결 클렌징 오일 200ml", "orders": 1, "qty": 1, "amount": 15900, "cost": 12149, "fee": 842.6999999999999}, {"platform": "네이버", "name": "바이오더마 하이드라비오 에센스로션 200ml X 2개", "orders": 1, "qty": 1, "amount": 38900, "cost": 34196, "fee": 2061.7}, {"platform": "네이버", "name": "제이숲 실크케라틴 손상모 2X 트리트먼트 1L", "orders": 1, "qty": 1, "amount": 19400, "cost": 16070, "fee": 1028.2}, {"platform": "네이버", "name": "다이소 PDRN VT 에센스 토너 크림 세트", "orders": 1, "qty": 1, "amount": 18000, "cost": 14990, "fee": 954}, {"platform": "네이버", "name": "라끄베르 옴므 리차지 올인원 에센스 150ml+150ml 기획", "orders": 1, "qty": 1, "amount": 21310, "cost": 18239, "fee": 1129.43}, {"platform": "네이버", "name": "체레미마카 인티밋 젤 베이직 120ml 1+1", "orders": 1, "qty": 1, "amount": 19900, "cost": 17030, "fee": 1054.7}, {"platform": "네이버", "name": "마녀공장 글루타치온 7 다크스팟 세럼 패치 30매", "orders": 1, "qty": 1, "amount": 17760, "cost": 15080, "fee": 941.28}, {"platform": "네이버", "name": "마데카 KBO 패치 6매 에디션", "orders": 1, "qty": 1, "amount": 7000, "cost": 5000, "fee": 371}, {"platform": "네이버", "name": "필리밀리 두피쿨링괄사", "orders": 1, "qty": 1, "amount": 18500, "cost": 16070, "fee": 980.5}, {"platform": "네이버", "name": "비에논 우레이드 앰플 기미 검버섯", "orders": 1, "qty": 1, "amount": 34900, "cost": 31870, "fee": 1849.7}, {"platform": "네이버", "name": "다이소 후시덤 베리어 리페어 수분크림 50ml", "orders": 1, "qty": 1, "amount": 8600, "cost": 7120, "fee": 455.8}, {"platform": "네이버", "name": "마몽드 포어 컨트롤 피어니 리퀴드 마스크 80ml + 80ml 리필", "orders": 1, "qty": 1, "amount": 26900, "cost": 24485, "fee": 1425.7}, {"platform": "네이버", "name": "크리니크 치크 팝 멜론 팝 퍼프2P + 립스틱", "orders": 1, "qty": 1, "amount": 26600, "cost": 24242, "fee": 1409.8}, {"platform": "네이버", "name": "일소 피지연화제 슈퍼 멜팅 세범 소프트너 150ml + 화장솜40매 + 피지제거기", "orders": 1, "qty": 1, "amount": 19700, "cost": 17780, "fee": 1044.1}, {"platform": "네이버", "name": "tage 테이지 선크림 시카트리 워터젤리 선세럼 50ml", "orders": 1, "qty": 1, "amount": 17060, "cost": 15520, "fee": 904.18}, {"platform": "네이버", "name": "오리온 미쯔 황치즈 6p 222g", "orders": 1, "qty": 1, "amount": 6800, "cost": 5900, "fee": 360.4}, {"platform": "네이버", "name": "마몽드 플로라 글로우 로즈 리퀴드 마스크 80ml + 80ml(리필)", "orders": 1, "qty": 1, "amount": 25800, "cost": 23924, "fee": 1367.3999999999999}, {"platform": "네이버", "name": "니베아 리페어 앤 케어 크림 400ml", "orders": 1, "qty": 1, "amount": 13770, "cost": 12722, "fee": 729.81}, {"platform": "네이버", "name": "레노아 향기 부스터 섬유유연제 화이트티", "orders": 1, "qty": 1, "amount": 8600, "cost": 8780, "fee": 455.8}, {"platform": "네이버", "name": "마녀공장 비피다 바이옴 콤플렉스 앰플 30ml, 2개", "orders": 1, "qty": 1, "amount": 21000, "cost": 20705, "fee": 1113}, {"platform": "쿠팡", "name": "위칙 섬유유연제 1.7L 리필 1개입", "orders": 47, "qty": 47, "amount": 493800, "cost": 352312, "fee": 52145.27999999999}, {"platform": "쿠팡", "name": "넘버즈인 1번 시카 갈아만든 초록패드 70매+70매리필", "orders": 27, "qty": 34, "amount": 871920, "cost": 666180, "fee": 92074.75199999996}, {"platform": "쿠팡", "name": "말랑이 글리세린 수리 보수 키트 공기빼기 빼는 슬랑이 왁뿌볼 만들기 DIY 주입기", "orders": 33, "qty": 34, "amount": 220320, "cost": 108652, "fee": 23265.792000000012}, {"platform": "쿠팡", "name": "플라이밀 단백질 쉐이크 쿠키앤크림 7개", "orders": 30, "qty": 31, "amount": 613700, "cost": 433461, "fee": 64806.719999999965}, {"platform": "쿠팡", "name": "브리쎄 레빗텅 틴트 필름 크렌베리 민트 10매", "orders": 29, "qty": 29, "amount": 693100, "cost": 414903, "fee": 73191.35999999994}, {"platform": "쿠팡", "name": "프로티원 흑임자맛 단백질 쉐이크 490g", "orders": 25, "qty": 28, "amount": 811440, "cost": 643940, "fee": 85688.064}, {"platform": "쿠팡", "name": "아비브 어성초 흔적 에센스 패드 클리어터치 70매 + 리필 70매", "orders": 25, "qty": 25, "amount": 710150, "cost": 563750, "fee": 74991.84000000001}, {"platform": "쿠팡", "name": "아누아 어성초 센텔라 레드스팟 크림 + 트러블 세럼 30ml", "orders": 24, "qty": 24, "amount": 768390, "cost": 608472, "fee": 81141.98399999998}, {"platform": "쿠팡", "name": "에스네이처 아쿠아 라이스 약산성 클렌징폼 160ml+클렌징폼 20ml", "orders": 19, "qty": 20, "amount": 498000, "cost": 317480, "fee": 52588.80000000001}, {"platform": "쿠팡", "name": "프롬랩스 단백질 흡착 트리트먼트 200ml 1+1", "orders": 19, "qty": 20, "amount": 653300, "cost": 477680, "fee": 68988.48000000001}, {"platform": "쿠팡", "name": "프로티원 녹차맛 단백질 쉐이크 490g", "orders": 19, "qty": 20, "amount": 594800, "cost": 462380, "fee": 62810.88000000002}, {"platform": "쿠팡", "name": "스킨푸드 캐롯 카로틴 카밍 워터패드 30매 x 2개입", "orders": 19, "qty": 20, "amount": 289800, "cost": 218280, "fee": 30602.88}, {"platform": "쿠팡", "name": "넘버즈인 6번 푹잠 마스크팩 세럼 50ml 1개", "orders": 16, "qty": 19, "amount": 290610, "cost": 33920, "fee": 30688.415999999994}, {"platform": "쿠팡", "name": "비플레인 녹두 약산성 클렌징폼 160ml 더블 기획", "orders": 17, "qty": 18, "amount": 458730, "cost": 400540, "fee": 48441.88799999999}, {"platform": "쿠팡", "name": "토리든 밸런스풀 시카 컨트롤 세럼 50ml+리필 50ml+패드 10매", "orders": 15, "qty": 15, "amount": 389400, "cost": 242010, "fee": 41120.640000000014}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분클렌저 150ml", "orders": 15, "qty": 15, "amount": 221250, "cost": 168975, "fee": 23363.999999999996}, {"platform": "쿠팡", "name": "야오 스칼프 케어라운드 (브런트코랄)", "orders": 14, "qty": 14, "amount": 245000, "cost": 165088, "fee": 25872}, {"platform": "쿠팡", "name": "마르시끄 PDRN 하이드로겔 립 패치 5매", "orders": 14, "qty": 14, "amount": 203000, "cost": 148190, "fee": 21436.800000000007}, {"platform": "쿠팡", "name": "메디큐브 PDRN 핑크 콜라겐 겔 패드 70매입 + 랜덤증정", "orders": 13, "qty": 13, "amount": 227500, "cost": 192049, "fee": 24024}, {"platform": "쿠팡", "name": "더마팩토리 나이아신아마이드 20% 세럼 80ml (한글에디션)", "orders": 12, "qty": 13, "amount": 169000, "cost": 142154, "fee": 17846.399999999994}, {"platform": "쿠팡", "name": "베르블랑 섬유유연제 화이트향 1L x 2개", "orders": 12, "qty": 12, "amount": 280160, "cost": 210144, "fee": 29584.896}, {"platform": "쿠팡", "name": "리쥬란 더마 힐러 포어 타이트닝 토너 패드 60매 + 60매 더블", "orders": 12, "qty": 12, "amount": 397350, "cost": 327840, "fee": 41960.159999999996}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 선 스프레이 1+1 기획", "orders": 4, "qty": 11, "amount": 247830, "cost": 159114, "fee": 26170.848000000005}, {"platform": "쿠팡", "name": "에뛰드 컬 픽스 마스카라 1+1 01 블랙", "orders": 11, "qty": 11, "amount": 200480, "cost": 161821, "fee": 21170.688000000002}, {"platform": "쿠팡", "name": "퓨렉신 코어포뮬러 우로비콘 1박스", "orders": 11, "qty": 11, "amount": 385000, "cost": 342320, "fee": 40656}, {"platform": "쿠팡", "name": "바이오가 등드름 바디워시 베타인살리실레이트 1000ml + 바디미스트", "orders": 10, "qty": 11, "amount": 242650, "cost": 248405, "fee": 25623.839999999997}, {"platform": "쿠팡", "name": "넘버즈인 1번 판토텐산 액티브업 수딩세럼 50ml+50ml리필", "orders": 10, "qty": 10, "amount": 234550, "cost": 200300, "fee": 24768.480000000007}, {"platform": "쿠팡", "name": "박준뷰티랩 매트 하드 헤어왁스 120g 1+1", "orders": 10, "qty": 10, "amount": 173140, "cost": 156200, "fee": 18283.584000000003}, {"platform": "쿠팡", "name": "비플레인 녹두 모공 클렌징 밀크 밤 100ml", "orders": 9, "qty": 9, "amount": 141570, "cost": 19080, "fee": 14949.792}, {"platform": "쿠팡", "name": "쥬베룩 PDLLA 콜라겐 부스팅 마스크 4매", "orders": 8, "qty": 9, "amount": 305820, "cost": 225760, "fee": 32294.592000000008}, {"platform": "쿠팡", "name": "마녀공장 퓨어 클렌징 오일 400ml", "orders": 8, "qty": 9, "amount": 269910, "cost": 194215, "fee": 28502.496}, {"platform": "쿠팡", "name": "닥터지 로얄 블랙스네일 퍼스트 에센스 165ML", "orders": 8, "qty": 9, "amount": 247500, "cost": 205960, "fee": 26136}, {"platform": "쿠팡", "name": "제로이드 인센티브 크림 토너 200ml", "orders": 6, "qty": 8, "amount": 175840, "cost": 12720, "fee": 18568.704}, {"platform": "쿠팡", "name": "질레트 프로쉴드 옐로우 파워 면도기 핸들 + 면도날 세트", "orders": 7, "qty": 8, "amount": 95200, "cost": 14840, "fee": 10053.12}, {"platform": "쿠팡", "name": "질레트랩스 딥클렌징바 면도기 세트 면도기 + 면도날1p", "orders": 8, "qty": 8, "amount": 95200, "cost": 16960, "fee": 10053.12}, {"platform": "쿠팡", "name": "닥터지 블랙스네일 에멀전 150ml 2개", "orders": 6, "qty": 8, "amount": 282360, "cost": 216720, "fee": 29817.216}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 선쿠션 15g", "orders": 7, "qty": 8, "amount": 156000, "cost": 110952, "fee": 16473.600000000002}, {"platform": "쿠팡", "name": "박준뷰티랩 샤이니 하드 헤어왁스 120g 1+1", "orders": 5, "qty": 7, "amount": 138100, "cost": 105100, "fee": 14583.36}, {"platform": "쿠팡", "name": "메디큐브 제로 모공 수분 선세럼 50ml", "orders": 6, "qty": 7, "amount": 107310, "cost": 82545, "fee": 11331.936}, {"platform": "쿠팡", "name": "파넬 시카마누 약산성 바디미스트 150ml", "orders": 7, "qty": 7, "amount": 107460, "cost": 87290, "fee": 11347.775999999998}, {"platform": "쿠팡", "name": "VT 리들샷 헤어 부스팅 스케일링 샴푸 500ml+70ml", "orders": 6, "qty": 7, "amount": 188930, "cost": 163290, "fee": 19951.007999999998}, {"platform": "쿠팡", "name": "마이프로틴 소프트 단백질 바 카라멜초코 10개입", "orders": 6, "qty": 6, "amount": 137400, "cost": 92370, "fee": 14509.439999999999}, {"platform": "쿠팡", "name": "그라펜 볼륨업 컬크림 150mlx2개입", "orders": 6, "qty": 6, "amount": 112800, "cost": 77520, "fee": 11911.68}, {"platform": "쿠팡", "name": "케어플러스 상처 커버 스팟 패치 324매", "orders": 6, "qty": 6, "amount": 123370, "cost": 95340, "fee": 13027.872}, {"platform": "쿠팡", "name": "네이밍 오버 듀 글로시 립틴트 블러쉬", "orders": 6, "qty": 6, "amount": 82180, "cost": 63504, "fee": 8678.208}, {"platform": "쿠팡", "name": "리르 갈락토미세스 앰플 95% 150ml", "orders": 5, "qty": 6, "amount": 56010, "cost": 43540, "fee": 5914.656}, {"platform": "쿠팡", "name": "프롬랩스 단백질 흡착 트리트먼트 200ml 1+1 + 브러쉬 증정", "orders": 5, "qty": 5, "amount": 170500, "cost": 119950, "fee": 18004.800000000003}, {"platform": "쿠팡", "name": "라비앙 마이크로 콜라겐 미스트 에센스 100ml x 1개입", "orders": 5, "qty": 5, "amount": 179500, "cost": 132865, "fee": 18955.2}, {"platform": "쿠팡", "name": "동아제약 아크네 프로 크림제 30ml +3ml+겔제3ml", "orders": 5, "qty": 5, "amount": 132840, "cost": 97600, "fee": 14027.903999999999}, {"platform": "쿠팡", "name": "플라이밀 단백질 쉐이크 파우치 블루베리요거트맛 6개입", "orders": 5, "qty": 5, "amount": 92500, "cost": 61970, "fee": 9768}, {"platform": "쿠팡", "name": "닥터지 레드 블레미쉬 클리어 수딩 크림 70mL 튜브", "orders": 5, "qty": 5, "amount": 111750, "cost": 93480, "fee": 11800.8}, {"platform": "쿠팡", "name": "플라이밀 쉐이크 파우치 5가지맛 리얼초코,브라운,쿠키앤크림,버터,블루베리요거트", "orders": 3, "qty": 4, "amount": 74000, "cost": 43800, "fee": 7814.4}, {"platform": "쿠팡", "name": "휩드 머그트리 비건 쿠키 클레이 팩클렌저 180ml", "orders": 4, "qty": 4, "amount": 90000, "cost": 62648, "fee": 9504}, {"platform": "쿠팡", "name": "리베르 사이 100ml + 30ml 기획", "orders": 4, "qty": 4, "amount": 75600, "cost": 50744, "fee": 7983.36}, {"platform": "쿠팡", "name": "야오 헤어브러쉬 스칼프케어라운드(애쉬블루)", "orders": 4, "qty": 4, "amount": 68200, "cost": 46640, "fee": 7201.92}, {"platform": "쿠팡", "name": "필리밀리 히팅뷰러 건전지 타입(20R)", "orders": 4, "qty": 4, "amount": 87680, "cost": 64280, "fee": 9259.008}, {"platform": "쿠팡", "name": "라운드랩 소나무 진정 시카 두피 토닉 100ml", "orders": 4, "qty": 4, "amount": 58180, "cost": 41484, "fee": 6143.808000000001}, {"platform": "쿠팡", "name": "딜라이트 프로젝트 허니버터 베이글칩 125g 5개입", "orders": 4, "qty": 4, "amount": 82530, "cost": 64280, "fee": 8715.168}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 선스틱 19g 1개", "orders": 4, "qty": 4, "amount": 69720, "cost": 58480, "fee": 7362.432}, {"platform": "쿠팡", "name": "리스테린 프리미엄 불소가글 750ml", "orders": 4, "qty": 4, "amount": 32460, "cost": 26504, "fee": 3427.7760000000003}, {"platform": "쿠팡", "name": "스파톤 애플 28포 4주분", "orders": 3, "qty": 4, "amount": 121880, "cost": 110400, "fee": 12870.528}, {"platform": "쿠팡", "name": "이지듀 멜라 비 토닝 UV 선패치 4매입", "orders": 2, "qty": 3, "amount": 72930, "cost": 33940, "fee": 7701.407999999999}, {"platform": "쿠팡", "name": "스파톤 애플 42포 6주분", "orders": 3, "qty": 3, "amount": 162000, "cost": 120840, "fee": 17107.199999999997}, {"platform": "쿠팡", "name": "박준뷰티랩 익스트림 홀드 스프레이 200ml X 2개", "orders": 3, "qty": 3, "amount": 59120, "cost": 46860, "fee": 6243.072}, {"platform": "쿠팡", "name": "아누아 PDRN 히알루론산 캡슐 100 마스크팩 6매", "orders": 3, "qty": 3, "amount": 35400, "cost": 27651, "fee": 3738.24}, {"platform": "쿠팡", "name": "그라펜 세이프 왁스 100ml", "orders": 3, "qty": 3, "amount": 36000, "cost": 31776, "fee": 3801.6000000000004}, {"platform": "쿠팡", "name": "닥터지 약산성 레드 블레미쉬 클리어 수딩 폼 150mL", "orders": 3, "qty": 3, "amount": 40500, "cost": 37260, "fee": 4276.799999999999}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 톤업 선크림 50ml", "orders": 3, "qty": 3, "amount": 49120, "cost": 45360, "fee": 5187.072}, {"platform": "쿠팡", "name": "테이지 시카트리 쿨링 젤투폼 클렌저", "orders": 2, "qty": 2, "amount": 17580, "cost": 4240, "fee": 1856.448}, {"platform": "쿠팡", "name": "베리홉 비타씨 미백마스크팩 5매 2.0", "orders": 2, "qty": 2, "amount": 39200, "cost": 24240, "fee": 4139.5199999999995}, {"platform": "쿠팡", "name": "리베르 선드라이 100ml + 30ml 기획", "orders": 2, "qty": 2, "amount": 37800, "cost": 25372, "fee": 3991.68}, {"platform": "쿠팡", "name": "로레알파리 반사판 헤어팩 글라이콜릭 글로스 200ml+미니헤어팩", "orders": 2, "qty": 2, "amount": 39840, "cost": 28010, "fee": 4207.104}, {"platform": "쿠팡", "name": "휩드 비건 팩클렌저 머그트리 130g + 유자몽 미니 기획", "orders": 2, "qty": 2, "amount": 45800, "cost": 33760, "fee": 4836.48}, {"platform": "쿠팡", "name": "투크 물크림 페이지", "orders": 2, "qty": 2, "amount": 38000, "cost": 27102, "fee": 4012.8}, {"platform": "쿠팡", "name": "에스네이처 아쿠아 스쿠알란 세럼 50ml+50ml 기획", "orders": 2, "qty": 2, "amount": 51000, "cost": 39538, "fee": 5385.6}, {"platform": "쿠팡", "name": "파티온 노스카나인 트러블 세럼 50ml 리필 기획(+리필40ml+크림10ml)", "orders": 2, "qty": 2, "amount": 68600, "cost": 55368, "fee": 7244.16}, {"platform": "쿠팡", "name": "리코셀 저자극 데일리 비타민 미백 크림 100g", "orders": 2, "qty": 2, "amount": 17790, "cost": 12240, "fee": 1878.624}, {"platform": "쿠팡", "name": "제로이드 핌프로브 레드 컨트롤 크림 pH4 80ml+25ml(젤 클렌저)", "orders": 2, "qty": 2, "amount": 57800, "cost": 48324, "fee": 6103.68}, {"platform": "쿠팡", "name": "파제르 질리맥스 무민 복숭아 딸기맛 1개", "orders": 2, "qty": 2, "amount": 25800, "cost": 20812, "fee": 2724.48}, {"platform": "쿠팡", "name": "보니웰 솔루텍스 프리미엄 오메가3 30캡슐 1박스", "orders": 2, "qty": 2, "amount": 14860, "cost": 11980, "fee": 1569.216}, {"platform": "쿠팡", "name": "파제르 질리맥스 논코팅 딸기맛 1개", "orders": 2, "qty": 2, "amount": 24650, "cost": 20812, "fee": 2603.04}, {"platform": "쿠팡", "name": "필리밀리 브이 페이스 괄사", "orders": 1, "qty": 2, "amount": 15000, "cost": 14540, "fee": 1584}, {"platform": "쿠팡", "name": "다슈 데일리 이지 커버 헤어쿠션 내추럴블랙 2개", "orders": 2, "qty": 2, "amount": 38940, "cost": 36640, "fee": 4112.064}, {"platform": "쿠팡", "name": "카푸네 인핸서 헤어토닉 120ml", "orders": 2, "qty": 2, "amount": 34800, "cost": 33836, "fee": 3674.88}, {"platform": "쿠팡", "name": "보니웰 비타민D 5000IU 솔루션 90정", "orders": 2, "qty": 2, "amount": 11940, "cost": 14560, "fee": 1260.864}, {"platform": "쿠팡", "name": "닥터지 그린 딥 포어 아보카도 팩투폼 200ml", "orders": 2, "qty": 2, "amount": 25220, "cost": 30240, "fee": 2663.232}, {"platform": "쿠팡", "name": "아누아 자작나무 70 수분 부스팅 세럼 30ml", "orders": 1, "qty": 1, "amount": 17350, "cost": 2120, "fee": 1832.16}, {"platform": "쿠팡", "name": "레이어랩 니오좀 판테놀 5% 세럼_50ml", "orders": 1, "qty": 1, "amount": 44990, "cost": 31760, "fee": 4750.944}, {"platform": "쿠팡", "name": "메디큐브 PDRN 핑크 펩타이드 앰플 마스크 10매입", "orders": 1, "qty": 1, "amount": 18900, "cost": 12020, "fee": 1995.84}, {"platform": "쿠팡", "name": "리브러쉬 칫솔 살균캡 1개", "orders": 1, "qty": 1, "amount": 7500, "cost": 2120, "fee": 792}, {"platform": "쿠팡", "name": "토리든 셀메이징 저분자 콜라겐 볼륨 립 에센스 11ml 더블기획", "orders": 1, "qty": 1, "amount": 16350, "cost": 10220, "fee": 1726.56}, {"platform": "쿠팡", "name": "브링그린 대나무 히알루 수분 클렌징폼 120ml", "orders": 1, "qty": 1, "amount": 6940, "cost": 2120, "fee": 732.864}, {"platform": "쿠팡", "name": "넘버즈인 1번 진정 맑게담은 청초토너 300ml 리필 기획", "orders": 1, "qty": 1, "amount": 27950, "cost": 20930, "fee": 2951.52}, {"platform": "쿠팡", "name": "리베르 섬유 향수 선드라이 100ml", "orders": 1, "qty": 1, "amount": 19500, "cost": 13457, "fee": 2059.2}, {"platform": "쿠팡", "name": "비브리브 꼬박꼬밥 플러스 할매미숫가루 5p", "orders": 1, "qty": 1, "amount": 18900, "cost": 13145, "fee": 1995.84}, {"platform": "쿠팡", "name": "GBH 지비에이치 센티드 데오스틱 24g 네롤리머스크", "orders": 1, "qty": 1, "amount": 22500, "cost": 16390, "fee": 2376}, {"platform": "쿠팡", "name": "오드로이 등잡티크림 로프디 200ml", "orders": 1, "qty": 1, "amount": 22900, "cost": 17240, "fee": 2418.24}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 크림 80ml+80ml+(+40ml)", "orders": 1, "qty": 1, "amount": 28900, "cost": 22760, "fee": 3051.84}, {"platform": "쿠팡", "name": "아렌시아 젤리 세럼 홀리 히솝 30 50g + 20g", "orders": 1, "qty": 1, "amount": 25500, "cost": 20030, "fee": 2692.8}, {"platform": "쿠팡", "name": "비플레인 녹두 약산성 클렌징폼 160ml 더블 기획 + 랜덤증정", "orders": 1, "qty": 1, "amount": 27900, "cost": 22370, "fee": 2946.24}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 선세럼 50ml", "orders": 1, "qty": 1, "amount": 15500, "cost": 11370, "fee": 1636.8}, {"platform": "쿠팡", "name": "라운드랩 자작나무 수분 선 스프레이 100ml", "orders": 1, "qty": 1, "amount": 16500, "cost": 12620, "fee": 1742.4}, {"platform": "쿠팡", "name": "아이디얼포맨 프레시 오일 컷 선스틱 18g+18g", "orders": 1, "qty": 1, "amount": 21700, "cost": 17330, "fee": 2291.52}, {"platform": "쿠팡", "name": "닥터지 레드 블레미쉬 클리어 수딩 크림 50mL!", "orders": 1, "qty": 1, "amount": 16500, "cost": 12747, "fee": 1742.4}, {"platform": "쿠팡", "name": "셀비엔 egf 원액 리포좀 1개입", "orders": 1, "qty": 1, "amount": 8900, "cost": 6090, "fee": 939.84}, {"platform": "쿠팡", "name": "뷰카 클래식 고불소 시린이치약 110g", "orders": 1, "qty": 1, "amount": 6270, "cost": 3920, "fee": 662.112}, {"platform": "쿠팡", "name": "프롬리에 EGF 워터 화잘먹 선앰플 56ml+30ml", "orders": 1, "qty": 1, "amount": 24250, "cost": 20030, "fee": 2560.8}, {"platform": "쿠팡", "name": "웨이크메이크 스테이 픽서 멀티 컬러 팩트 01 페일클리어", "orders": 1, "qty": 1, "amount": 17700, "cost": 14330, "fee": 1869.12}, {"platform": "쿠팡", "name": "어반버스터즈 프로폴리스 면역 구미", "orders": 1, "qty": 1, "amount": 16900, "cost": 13730, "fee": 1784.64}, {"platform": "쿠팡", "name": "투크 물크림 W02 베베살몬", "orders": 1, "qty": 1, "amount": 19000, "cost": 15620, "fee": 2006.4}, {"platform": "쿠팡", "name": "필리밀리 두피괄사쿨링", "orders": 1, "qty": 1, "amount": 19000, "cost": 15620, "fee": 2006.4}, {"platform": "쿠팡", "name": "리스테린 프리미엄 불소가글 500ml", "orders": 1, "qty": 1, "amount": 7100, "cost": 5124, "fee": 749.76}, {"platform": "쿠팡", "name": "메이크프렘 수딩 핑크 톤업 선크림 40ml+40ml+20ml", "orders": 1, "qty": 1, "amount": 25900, "cost": 22020, "fee": 2735.04}, {"platform": "쿠팡", "name": "마인트리 루테인지아잔틴 30정 2박스", "orders": 1, "qty": 1, "amount": 12300, "cost": 10026, "fee": 1298.8799999999999}, {"platform": "쿠팡", "name": "프로티원 단백질 바 초코맛 10개입", "orders": 1, "qty": 1, "amount": 21500, "cost": 18275, "fee": 2270.4}, {"platform": "쿠팡", "name": "유시몰 화이트닝 퍼플코렉터치약 106g", "orders": 1, "qty": 1, "amount": 15790, "cost": 13550, "fee": 1667.424}, {"platform": "쿠팡", "name": "모레모 헤어 트리트먼트 미라클 2X 230ml 시그니처 플로럴 향", "orders": 1, "qty": 1, "amount": 12900, "cost": 11020, "fee": 1362.24}, {"platform": "쿠팡", "name": "토리든 다이브인 포맨 저분자 히알루론산 올인원 200g", "orders": 1, "qty": 1, "amount": 17280, "cost": 15060, "fee": 1824.768}, {"platform": "쿠팡", "name": "네이밍 퍼펙테일 아이 디자이닝 펜슬 듀얼 라이너 피오니 핑크", "orders": 1, "qty": 1, "amount": 14970, "cost": 13280, "fee": 1580.8319999999999}, {"platform": "쿠팡", "name": "마르시끄 속눈썹 펌 노글루 셀프 키트", "orders": 1, "qty": 1, "amount": 25910, "cost": 23666, "fee": 2736.096}, {"platform": "쿠팡", "name": "체이싱래빗 올어바웃 글로우 톤업 선 70ml", "orders": 1, "qty": 1, "amount": 14800, "cost": 13820, "fee": 1562.8799999999999}, {"platform": "쿠팡", "name": "동국제약 굿잠 벅스케이프 에프터바이트 1개", "orders": 1, "qty": 1, "amount": 7200, "cost": 7420, "fee": 760.32}, {"platform": "쿠팡", "name": "참존 탑클래스 더 콜라겐 리프팅 하이드로 워터드롭 크림 100ml", "orders": 1, "qty": 1, "amount": 9790, "cost": 10840, "fee": 1033.824}];
+
+function fmtWon(n){ return Math.round(n||0).toLocaleString('ko-KR')+'원'; }
+function fmtNum(n){ return Math.round(n||0).toLocaleString('ko-KR'); }
+function fmtPct(n){ return ((n||0)*100).toFixed(1)+'%'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function uid(){ return 'f'+Math.floor(Math.random()*1e9); }
+
+/* ========================= 테마 ========================= */
+const themeBtn = document.getElementById('themeToggle');
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+themeBtn.textContent = prefersDark ? '라이트 모드' : '다크 모드';
+themeBtn.addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  themeBtn.textContent = next === 'dark' ? '라이트 모드' : '다크 모드';
+});
+
+/* ========================= 네비게이션 ========================= */
+const VIEWS = ['upload','ledger','dashboard'];
+const VIEW_META = {
+  upload: {title:'1단계 · 판매내역 업로드', desc:'쿠팡·스마트스토어에서 받은 엑셀 파일을 그대로 올리세요. 형식은 자동으로 인식합니다.'},
+  ledger: {title:'2단계 · 원가장부', desc:'상품별 원가를 입력하면 마진율이 자동 계산됩니다.'},
+  dashboard: {title:'3단계 · 대시보드', desc:'판매량·마진·재고·재구매 우선순위를 한눈에 확인하세요.'},
+};
+function goView(name){
+  VIEWS.forEach(v => { document.getElementById('view-'+v).style.display = (v===name)?'':'none'; });
+  document.querySelectorAll('.step-btn').forEach(b => b.classList.toggle('active', b.dataset.view===name));
+  document.getElementById('topTitle').textContent = VIEW_META[name].title;
+  document.getElementById('topDesc').textContent = VIEW_META[name].desc;
+  if (name==='ledger') renderLedgerTable();
+  if (name==='dashboard') renderDashboard();
+}
+document.querySelectorAll('.step-btn').forEach(b=>{
+  b.addEventListener('click', ()=>{ if(!b.disabled) goView(b.dataset.view); });
+});
+document.getElementById('toLedgerBtn').addEventListener('click', ()=>{
+  document.getElementById('nav-ledger').disabled = false;
+  document.getElementById('nav-ledger').classList.add('done');
+  goView('ledger');
+});
+document.getElementById('toDashboardBtn').addEventListener('click', ()=>{
+  document.getElementById('nav-dashboard').disabled = false;
+  document.getElementById('nav-dashboard').classList.add('done');
+  goView('dashboard');
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  if (!confirm('업로드한 데이터와 장부 입력 내용이 모두 초기화됩니다. 계속할까요?')) return;
+  APP.files = []; APP.ledger = {}; APP.usingSample = false;
+  document.getElementById('nav-ledger').disabled = true;
+  document.getElementById('nav-dashboard').disabled = true;
+  document.getElementById('nav-ledger').classList.remove('done');
+  document.getElementById('nav-dashboard').classList.remove('done');
+  renderFileList(); updateSidebarStatus();
+  document.getElementById('toLedgerRow').style.display = 'none';
+  goView('upload');
+});
+
+function updateSidebarStatus(){
+  const el = document.getElementById('sidebarStatus');
+  if (!APP.files.length) { el.innerHTML = '아직 업로드된 데이터가 없습니다.'; return; }
+  const mapped = APP.files.filter(f=>f.status==='mapped');
+  const totalRows = mapped.reduce((s,f)=>s+f.mappedRows.length,0);
+  const plats = [...new Set(mapped.map(f=>f.platform))];
+  el.innerHTML = `<b>${mapped.length}개 파일</b> 반영됨<br>${plats.join(', ')||'-'}<br>총 ${fmtNum(totalRows)}행`;
+}
+
+/* ========================= 파일 업로드 & 파싱 ========================= */
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+dropzone.addEventListener('click', ()=> fileInput.click());
+dropzone.addEventListener('dragover', e=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e=>{
+  e.preventDefault(); dropzone.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e=> handleFiles(e.target.files));
+
+function handleFiles(fileListObj){
+  const files = Array.from(fileListObj);
+  files.forEach(readFile);
+}
+
+function readFile(file){
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null, blankrows:false});
+      const rec = { id: uid(), name: file.name, aoa, headerRow: guessHeaderRow(aoa), status:'needs-mapping', mapping:null, platform: guessPlatform(file.name, aoa), mappedRows: [] };
+      APP.files.push(rec);
+      autoApplyIfKnownFormat(rec);
+      renderFileList();
+    } catch (err) {
+      alert('파일을 읽을 수 없습니다: ' + file.name + '\\n' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function guessHeaderRow(aoa){
+  let best = 0, bestScore = -1;
+  for (let r=0; r<Math.min(10, aoa.length); r++){
+    const row = aoa[r] || [];
+    const nonNull = row.filter(v=>v!==null && v!=='').length;
+    const strCount = row.filter(v=>typeof v==='string').length;
+    let score = nonNull + strCount;
+    // 다음 몇 행에 데이터가 실제로 있는지 보너스
+    const nextRow = aoa[r+1] || [];
+    if (nextRow.filter(v=>v!==null && v!=='').length >= nonNull*0.5) score += 3;
+    if (score > bestScore) { bestScore = score; best = r; }
+  }
+  return best;
+}
+function guessPlatform(filename, aoa){
+  const f = filename.toLowerCase();
+  if (f.includes('쿠팡') || f.includes('coupang')) return '쿠팡';
+  if (f.includes('네이버') || f.includes('스마트스토어') || f.includes('smartstore')) return '네이버';
+  const flat = aoa.slice(0,6).flat().filter(v=>typeof v==='string').join(' ');
+  if (flat.includes('수취인연락처') || flat.includes('스마트스토어')) return '네이버';
+  if (flat.includes('쿠팡')) return '쿠팡';
+  return '기타';
+}
+
+const FIELD_KEYWORDS = {
+  name: ['상품명','품목명','제품명'],
+  qty: ['판매량','수량','판매수량'],
+  amount: ['총매출','매출','최종 상품별 총 주문금액','상품가격','판매금액','주문금액'],
+  cost: ['총비용','원가','매입가'],
+  fee: ['수수료'],
+  orders: ['주문건수','건수'],
+};
+function guessColumn(headers, kind){
+  const kws = FIELD_KEYWORDS[kind];
+  for (const kw of kws) {
+    const idx = headers.findIndex(h => h && String(h).includes(kw));
+    if (idx>=0) return idx;
+  }
+  return -1;
+}
+
+function isKnownFormat(headers){
+  // 네이버 발주발송관리 시그니처
+  return headers.includes('수취인연락처1') && headers.includes('상품주문번호');
+}
+
+function autoApplyIfKnownFormat(rec){
+  const headers = (rec.aoa[rec.headerRow]||[]).map(h=> h==null? '': String(h));
+  if (isKnownFormat(headers)) {
+    rec.mapping = {
+      name: headers.indexOf('상품명'), qty: headers.indexOf('수량'),
+      amount: headers.indexOf('최종 상품별 총 주문금액'), cost:-1, fee:-1, orders:-1,
+    };
+    applyMapping(rec);
+  }
+}
+
+function renderFileList(){
+  const el = document.getElementById('fileList');
+  el.innerHTML = '';
+  APP.files.forEach(rec => {
+    const div = document.createElement('div');
+    div.className = 'file-row';
+    const rows = rec.status==='mapped' ? rec.mappedRows.length : (rec.aoa.length - rec.headerRow - 1);
+    div.innerHTML = `
+      <div>
+        <div class="fname">${esc(rec.name)}</div>
+        <div class="fmeta">${esc(rec.platform)} · 약 ${fmtNum(rows)}행</div>
+      </div>
+      <div class="actions">
+        <span class="chip ${rec.status==='mapped'?'ok':'pending'}">${rec.status==='mapped'?'적용됨':'컬럼 확인 필요'}</span>
+        <button class="icon-btn" data-act="map" data-id="${rec.id}" title="컬럼 매핑">⚙</button>
+        <button class="icon-btn" data-act="remove" data-id="${rec.id}" title="삭제">✕</button>
+      </div>`;
+    el.appendChild(div);
+  });
+  el.querySelectorAll('[data-act=remove]').forEach(b=> b.addEventListener('click', ()=>{
+    APP.files = APP.files.filter(f=>f.id!==b.dataset.id);
+    renderFileList(); updateSidebarStatus(); checkToLedgerVisibility();
+  }));
+  el.querySelectorAll('[data-act=map]').forEach(b=> b.addEventListener('click', ()=> openMapping(b.dataset.id)));
+  updateSidebarStatus();
+  checkToLedgerVisibility();
+  // 매핑이 필요한 파일이 있으면 자동으로 열기
+  const needsMap = APP.files.find(f=>f.status==='needs-mapping');
+  if (needsMap) openMapping(needsMap.id);
+}
+function checkToLedgerVisibility(){
+  const anyMapped = APP.files.some(f=>f.status==='mapped');
+  document.getElementById('toLedgerRow').style.display = anyMapped ? '' : 'none';
+}
+
+/* ---- 매핑 UI ---- */
+function openMapping(id){
+  const rec = APP.files.find(f=>f.id===id);
+  if (!rec) return;
+  APP.pendingParse = rec;
+  document.getElementById('mappingCard').style.display = '';
+  document.getElementById('mappingFileName').textContent = '— ' + rec.name;
+  renderPreviewTable(rec);
+  renderMappingGrid(rec);
+  document.getElementById('mappingCard').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function renderPreviewTable(rec){
+  const el = document.getElementById('previewTable');
+  const rows = rec.aoa.slice(0, 10);
+  const maxCols = Math.min(9, Math.max(...rows.map(r=>r.length)));
+  let h = '<tbody>';
+  rows.forEach((row,i)=>{
+    h += `<tr class="header-row-choice ${i===rec.headerRow?'selected':''}" data-row="${i}"><td>${i===rec.headerRow?'✓ 헤더':''}</td>`;
+    for (let c=0;c<maxCols;c++){
+      const v = row[c];
+      h += `<td>${v==null?'':esc(String(v).slice(0,18))}</td>`;
+    }
+    h += '</tr>';
+  });
+  h += '</tbody>';
+  el.innerHTML = h;
+  el.querySelectorAll('tr.header-row-choice').forEach(tr=>{
+    tr.addEventListener('click', ()=>{
+      rec.headerRow = +tr.dataset.row;
+      renderPreviewTable(rec);
+      renderMappingGrid(rec);
+    });
+  });
+}
+function renderMappingGrid(rec){
+  const headers = (rec.aoa[rec.headerRow]||[]).map((h,i)=> h==null? ('열'+(i+1)): String(h));
+  if (!rec.mapping) {
+    rec.mapping = {
+      name: guessColumn(headers,'name'), qty: guessColumn(headers,'qty'),
+      amount: guessColumn(headers,'amount'), cost: guessColumn(headers,'cost'),
+      fee: guessColumn(headers,'fee'), orders: guessColumn(headers,'orders'),
+    };
+  }
+  const fields = [
+    {key:'platform', label:'플랫폼', type:'platform'},
+    {key:'name', label:'상품명 (필수)', type:'col'},
+    {key:'qty', label:'판매수량 (필수)', type:'col'},
+    {key:'amount', label:'매출/금액 (필수)', type:'col'},
+    {key:'cost', label:'원가 (있으면 선택)', type:'col'},
+    {key:'fee', label:'수수료 (있으면 선택)', type:'col'},
+  ];
+  const el = document.getElementById('mappingGrid');
+  el.innerHTML = fields.map(f=>{
+    if (f.type==='platform') {
+      const opts = ['네이버','쿠팡','기타'].map(p=>`<option value="${p}" ${rec.platform===p?'selected':''}>${p}</option>`).join('');
+      return `<div class="field"><label>${f.label}</label><select data-field="platform">${opts}</select></div>`;
+    }
+    const opts = ['<option value="-1">(없음)</option>'].concat(
+      headers.map((h,i)=>`<option value="${i}" ${rec.mapping[f.key]===i?'selected':''}>${esc(h)}</option>`)
+    ).join('');
+    return `<div class="field"><label>${f.label}</label><select data-field="${f.key}">${opts}</select></div>`;
+  }).join('');
+  el.querySelectorAll('select').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const field = sel.dataset.field;
+      if (field==='platform') rec.platform = sel.value;
+      else rec.mapping[field] = +sel.value;
+    });
+  });
+}
+document.getElementById('applyMappingBtn').addEventListener('click', ()=>{
+  const rec = APP.pendingParse;
+  if (!rec) return;
+  if (rec.mapping.name<0 || rec.mapping.qty<0 || rec.mapping.amount<0) {
+    alert('상품명 / 판매수량 / 매출(금액)은 반드시 지정해야 합니다.');
+    return;
+  }
+  applyMapping(rec);
+  document.getElementById('mappingCard').style.display = 'none';
+  APP.pendingParse = null;
+  renderFileList();
+});
+document.getElementById('cancelMappingBtn').addEventListener('click', ()=>{
+  document.getElementById('mappingCard').style.display = 'none';
+  APP.pendingParse = null;
+});
+function applyMapping(rec){
+  const rows = [];
+  for (let r=rec.headerRow+1; r<rec.aoa.length; r++){
+    const row = rec.aoa[r];
+    if (!row) continue;
+    const name = row[rec.mapping.name];
+    if (name==null || name==='') continue;
+    const qty = Number(row[rec.mapping.qty])||0;
+    const amount = Number(row[rec.mapping.amount])||0;
+    const cost = rec.mapping.cost>=0 ? (Number(row[rec.mapping.cost])||0) : null;
+    const fee = rec.mapping.fee>=0 ? (Number(row[rec.mapping.fee])||0) : 0;
+    const orders = rec.mapping.orders>=0 ? (Number(row[rec.mapping.orders])||1) : 1;
+    rows.push({ platform: rec.platform, name: String(name).trim(), qty, amount, cost, fee, orders });
+  }
+  rec.mappedRows = rows;
+  rec.status = 'mapped';
+}
+
+/* ---- 샘플 데이터 ---- */
+document.getElementById('sampleBtn').addEventListener('click', ()=>{
+  APP.files = [{
+    id: uid(), name: '샘플: 8월13일-18일_판매마진_데이터.xlsx', aoa:[], headerRow:0,
+    status:'mapped', platform:'네이버+쿠팡', mapping:null,
+    mappedRows: SAMPLE_ROWS.map(r=>({platform:r.platform, name:r.name, qty:r.qty, amount:r.amount, cost:r.cost, fee:r.fee, orders:r.orders})),
+  }];
+  APP.usingSample = true;
+  APP.ledger = {};
+  renderFileList();
+  document.getElementById('nav-ledger').disabled = false;
+  document.getElementById('nav-dashboard').disabled = false;
+  document.getElementById('nav-ledger').classList.add('done');
+  document.getElementById('nav-dashboard').classList.add('done');
+  goView('dashboard');
+});
+
+/* ========================= 집계 로직 ========================= */
+function getUnifiedRows(){
+  const rows = [];
+  APP.files.filter(f=>f.status==='mapped').forEach(f=> rows.push(...f.mappedRows));
+  return rows;
+}
+function getAggregatedProducts(){
+  const rows = getUnifiedRows();
+  const byKey = new Map();
+  rows.forEach(r=>{
+    const key = r.platform+'||'+r.name;
+    if (!byKey.has(key)) byKey.set(key, {platform:r.platform, name:r.name, orders:0, qty:0, revenue:0, costFromFile:0, hasFileCost:false, fee:0});
+    const agg = byKey.get(key);
+    agg.orders += r.orders||1;
+    agg.qty += r.qty||0;
+    agg.revenue += r.amount||0;
+    agg.fee += r.fee||0;
+    if (r.cost!=null) { agg.costFromFile += r.cost; agg.hasFileCost = true; }
+  });
+  const out = [];
+  byKey.forEach(agg=>{
+    const ledgerEntry = APP.ledger[agg.name];
+    const unitCost = ledgerEntry && ledgerEntry.cost!=null && ledgerEntry.cost!=='' ? Number(ledgerEntry.cost) : null;
+    const cost = agg.hasFileCost ? agg.costFromFile : (unitCost!=null ? unitCost*agg.qty : null);
+    const hasCost = cost!=null;
+    const margin = hasCost ? (agg.revenue - cost - agg.fee) : null;
+    const margin_rate = hasCost && agg.revenue ? margin/agg.revenue : null;
+    const markup_rate = hasCost && cost ? margin/cost : null;
+    out.push({
+      platform: agg.platform, name: agg.name, orders: agg.orders, qty: agg.qty, revenue: agg.revenue,
+      cost: hasCost? cost: null, fee: agg.fee, margin, margin_rate, markup_rate, hasCost,
+      stock: ledgerEntry? ledgerEntry.stock : null, minStock: ledgerEntry? ledgerEntry.minStock : null,
+      leadTime: ledgerEntry? ledgerEntry.leadTime : null,
+    });
+  });
+  return out;
+}
+
+/* ========================= 원가장부 ========================= */
+function ensureLedgerEntries(){
+  const products = getAggregatedProducts();
+  products.forEach(p=>{
+    if (!APP.ledger[p.name]) APP.ledger[p.name] = {cost: p.hasCost? Math.round(p.cost/p.qty): null, stock:null, minStock:null, leadTime:null};
+  });
+}
+let ledgerSort = {key:'name', dir:1};
+function renderLedgerTable(){
+  ensureLedgerEntries();
+  const products = getAggregatedProducts();
+  document.getElementById('ledgerDesc').textContent = `${products.length}개 상품 · 원가 미입력 ${products.filter(p=>!p.hasCost).length}개`;
+  const q = (document.getElementById('ledgerSearch').value||'').toLowerCase();
+  let rows = products.filter(p=>p.name.toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    const av=a[ledgerSort.key], bv=b[ledgerSort.key];
+    if (typeof av==='string') return ledgerSort.dir*av.localeCompare(bv);
+    return ledgerSort.dir*((av||0)-(bv||0));
+  });
+  const table = document.getElementById('ledgerTable');
+  let h = '<thead><tr><th data-key="platform">플랫폼</th><th data-key="name">상품명</th><th class="num">판매량</th><th class="num">매출</th><th>원가(개당)</th><th>현재재고</th><th>최소재고</th><th>리드타임(일)</th></tr></thead><tbody>';
+  rows.forEach(p=>{
+    const entry = APP.ledger[p.name] || {};
+    h += `<tr class="${p.hasCost?'':'missing-cost'}">
+      <td>${esc(p.platform)}</td><td>${esc(p.name)}</td>
+      <td class="num">${fmtNum(p.qty)}개</td><td class="num">${fmtWon(p.revenue)}</td>
+      <td><input type="number" data-name="${esc(p.name)}" data-f="cost" value="${entry.cost??''}" placeholder="원가"></td>
+      <td><input type="number" data-name="${esc(p.name)}" data-f="stock" value="${entry.stock??''}" placeholder="-"></td>
+      <td><input type="number" data-name="${esc(p.name)}" data-f="minStock" value="${entry.minStock??''}" placeholder="-"></td>
+      <td><input type="number" data-name="${esc(p.name)}" data-f="leadTime" value="${entry.leadTime??''}" placeholder="-"></td>
+    </tr>`;
+  });
+  h += '</tbody>';
+  table.innerHTML = h;
+  table.querySelectorAll('th[data-key]').forEach(th=> th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    ledgerSort.dir = (ledgerSort.key===key) ? -ledgerSort.dir : 1;
+    ledgerSort.key = key;
+    renderLedgerTable();
+  }));
+  table.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const name = inp.dataset.name, f = inp.dataset.f;
+      if (!APP.ledger[name]) APP.ledger[name] = {cost:null,stock:null,minStock:null,leadTime:null};
+      APP.ledger[name][f] = inp.value===''? null : Number(inp.value);
+    });
+  });
+}
+document.getElementById('ledgerSearch').addEventListener('input', renderLedgerTable);
+document.getElementById('saveLedgerBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(APP.ledger, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '원가장부_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+});
+document.getElementById('loadLedgerBtn').addEventListener('click', ()=> document.getElementById('ledgerFileInput').click());
+document.getElementById('ledgerFileInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const loaded = JSON.parse(ev.target.result);
+      APP.ledger = Object.assign({}, APP.ledger, loaded);
+      renderLedgerTable();
+      alert('장부를 불러왔습니다.');
+    } catch(err){ alert('장부 파일을 읽을 수 없습니다.'); }
+  };
+  reader.readAsText(file);
+});
+
+/* ========================= 대시보드 ========================= */
+const tip = document.getElementById('tooltip');
+function showTip(html,x,y){ tip.innerHTML=html; tip.style.left=(x+14)+'px'; tip.style.top=(y+14)+'px'; tip.classList.add('show'); }
+function hideTip(){ tip.classList.remove('show'); }
+
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+  });
+});
+
+let currentProducts = [];
+function renderDashboard(){
+  currentProducts = getAggregatedProducts();
+  const withCost = currentProducts.filter(p=>p.hasCost);
+  const missingCost = currentProducts.length - withCost.length;
+
+  const banner = document.getElementById('dataQualityBanner');
+  if (missingCost>0) {
+    banner.style.display='';
+    banner.innerHTML = `<b>안내.</b> ${missingCost}개 상품은 원가가 없어 마진 계산에서 제외됐습니다. <b>2단계 원가장부</b>에서 원가를 채우면 자동으로 반영됩니다.`;
+  } else banner.style.display='none';
+
+  const totalRevenue = withCost.reduce((s,p)=>s+p.revenue,0);
+  const totalMargin = withCost.reduce((s,p)=>s+p.margin,0);
+  const totalQty = currentProducts.reduce((s,p)=>s+p.qty,0);
+  const totalOrders = currentProducts.reduce((s,p)=>s+p.orders,0);
+  const negCount = withCost.filter(p=>p.margin<0).length;
+
+  document.getElementById('kpiRevenue').textContent = fmtWon(currentProducts.reduce((s,p)=>s+p.revenue,0));
+  document.getElementById('kpiMargin').textContent = fmtWon(totalMargin);
+  document.getElementById('kpiRate').textContent = totalRevenue? fmtPct(totalMargin/totalRevenue) : '-';
+  document.getElementById('kpiQty').textContent = fmtNum(totalQty)+'개';
+  document.getElementById('kpiOrders').textContent = fmtNum(totalOrders)+'건';
+  document.getElementById('kpiNeg').textContent = negCount+'개';
+
+  renderPlatformCompare(currentProducts);
+  renderTopBar('margin');
+  renderReorderTable(withCost);
+  renderNegTable(withCost);
+  renderAllTable(currentProducts);
+}
+
+function renderPlatformCompare(products){
+  const plats = [...new Set(products.map(p=>p.platform))];
+  const colors = {}; plats.forEach((p,i)=> colors[p] = i%2===0? 'var(--series-1)':'var(--series-2)');
+  const compEl = document.getElementById('platformCompare');
+  compEl.innerHTML = plats.map(name=>{
+    const rows = products.filter(p=>p.platform===name);
+    const withCost = rows.filter(p=>p.hasCost);
+    const rev = rows.reduce((s,p)=>s+p.revenue,0);
+    const mar = withCost.reduce((s,p)=>s+p.margin,0);
+    const qty = rows.reduce((s,p)=>s+p.qty,0);
+    const orders = rows.reduce((s,p)=>s+p.orders,0);
+    return `<div class="pf-card"><div class="pf-name"><span class="dot" style="background:${colors[name]}"></span>${esc(name)}</div>
+      <div class="pf-row"><span>매출</span><span class="v">${fmtWon(rev)}</span></div>
+      <div class="pf-row"><span>마진</span><span class="v">${fmtWon(mar)}</span></div>
+      <div class="pf-row"><span>마진율</span><span class="v">${rev? fmtPct(mar/rev):'-'}</span></div>
+      <div class="pf-row"><span>판매수량 / 주문건수</span><span class="v">${fmtNum(qty)}개 / ${fmtNum(orders)}건</span></div>
+      <div class="pf-row"><span>취급 상품 종류</span><span class="v">${rows.length}종</span></div>
+    </div>`;
+  }).join('');
+  document.getElementById('platformLegend').innerHTML = plats.map(name=>`<span><span class="dot" style="background:${colors[name]}"></span>${esc(name)}</span>`).join('');
+
+  const svgEl = document.getElementById('platformBar');
+  const w=900,barH=22,gap=34,leftW=70,rightPad=90,chartW=w-leftW-rightPad;
+  const vals = plats.flatMap(p=>{ const rows=products.filter(x=>x.platform===p); return [rows.reduce((s,x)=>s+x.revenue,0)]; });
+  const max = Math.max(1, ...vals);
+  let svg = `<svg width="100%" viewBox="0 0 ${w} ${plats.length*(gap+barH*2+10)}">`;
+  plats.forEach((name,i)=>{
+    const rows = products.filter(p=>p.platform===name);
+    const withCost = rows.filter(p=>p.hasCost);
+    const rev = rows.reduce((s,p)=>s+p.revenue,0);
+    const mar = withCost.reduce((s,p)=>s+p.margin,0);
+    const y0 = i*(gap+barH*2+10);
+    svg += `<text class="bar-name-label" x="0" y="${y0+barH*0.7}">${esc(name)}</text>`;
+    const bw1 = Math.max(2,(rev/max)*chartW);
+    svg += `<rect x="${leftW}" y="${y0}" width="${bw1}" height="${barH}" rx="4" fill="var(--series-1)"></rect>`;
+    svg += `<text class="bar-value-label" x="${leftW+bw1+8}" y="${y0+barH*0.7}">${fmtWon(rev)}</text>`;
+    const y1 = y0+barH+6;
+    const bw2 = Math.max(2,(Math.max(0,mar)/max)*chartW);
+    svg += `<rect x="${leftW}" y="${y1}" width="${bw2}" height="${barH}" rx="4" fill="var(--series-2)"></rect>`;
+    svg += `<text class="bar-value-label" x="${leftW+bw2+8}" y="${y1+barH*0.7}">${fmtWon(mar)}</text>`;
+  });
+  svg += `</svg>`;
+  svgEl.innerHTML = svg;
+  document.getElementById('topLegend').innerHTML = document.getElementById('platformLegend').innerHTML;
+}
+
+function renderTopBar(metric){
+  const el = document.getElementById('barChart');
+  const withCost = currentProducts.filter(p=>p.hasCost);
+  const pool = metric==='margin' ? withCost : currentProducts;
+  const rows = pool.slice().sort((a,b)=> (metric==='margin'? b.margin-a.margin : b.qty-a.qty)).slice(0,12);
+  if (!rows.length) { el.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:12.5px;">표시할 데이터가 없습니다.</div>'; return; }
+  const max = Math.max(...rows.map(r=> metric==='margin'? r.margin : r.qty));
+  const barH=20,gap=13,leftW=248,rightPad=90,w=800;
+  const chartW=w-leftW-rightPad, h = rows.length*(barH+gap);
+  const plats = [...new Set(currentProducts.map(p=>p.platform))];
+  const platColor = p => 'var(--series-'+((plats.indexOf(p)%2)+1)+')';
+  let svg = `<svg width="100%" viewBox="0 0 ${w} ${h}">`;
+  rows.forEach((r,i)=>{
+    const y=i*(barH+gap);
+    const val = metric==='margin'? r.margin : r.qty;
+    const bw = Math.max(2,(val/max)*chartW);
+    const label = r.name.length>16? r.name.slice(0,16)+'…': r.name;
+    svg += `<circle cx="${leftW-10}" cy="${y+barH*0.5}" r="4" fill="${platColor(r.platform)}"></circle>`;
+    svg += `<text class="bar-name-label" x="${leftW-20}" y="${y+barH*0.68}" text-anchor="end">${esc(label)}</text>`;
+    svg += `<rect class="bar-mark" data-i="${i}" x="${leftW}" y="${y}" width="${bw}" height="${barH}" rx="4" fill="var(--series-1)" style="cursor:pointer"></rect>`;
+    svg += `<text class="bar-value-label" x="${leftW+bw+8}" y="${y+barH*0.68}">${metric==='margin'? fmtWon(val): fmtNum(val)+'개'}</text>`;
+  });
+  svg += `</svg>`;
+  el.innerHTML = svg;
+  el.querySelectorAll('.bar-mark').forEach(bar=>{
+    bar.addEventListener('mousemove',(e)=>{
+      const r = rows[+bar.dataset.i];
+      showTip(`<b>[${esc(r.platform)}] ${esc(r.name)}</b><br>판매량 ${fmtNum(r.qty)}개 · 매출 ${fmtWon(r.revenue)}<br>${r.hasCost? ('마진 '+fmtWon(r.margin)+' (마진율 '+fmtPct(r.margin_rate)+')') : '원가 미입력'}`, e.clientX, e.clientY);
+    });
+    bar.addEventListener('mouseleave', hideTip);
+  });
+}
+document.querySelectorAll('#topSeg button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#topSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    renderTopBar(b.dataset.metric);
+  });
+});
+
+function renderReorderTable(withCost){
+  const rows = withCost.filter(p=>p.margin>0).sort((a,b)=>b.margin-a.margin).slice(0,20);
+  let h = `<thead><tr><th>순위</th><th>플랫폼</th><th>상품명</th><th class="num">판매량</th><th class="num">총마진</th><th class="num">마진율</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    h += `<tr><td>${i+1}</td><td>${esc(r.platform)}</td><td>${esc(r.name)}</td><td class="num">${fmtNum(r.qty)}개</td><td class="num">${fmtWon(r.margin)}</td><td class="num">${fmtPct(r.margin_rate)}</td></tr>`;
+  });
+  h += rows.length? '</tbody>' : '</tbody>';
+  document.getElementById('reorderTable').innerHTML = h || '';
+}
+
+function renderNegTable(withCost){
+  const rows = withCost.filter(p=>p.margin<0).sort((a,b)=>a.margin-b.margin);
+  document.getElementById('negTitle').textContent = `역마진 · 저마진 상품 (${rows.length}개)`;
+  let h = `<thead><tr><th>플랫폼</th><th>상품명</th><th class="num">판매량</th><th class="num">총매출</th><th class="num">총마진</th><th class="num">마진율</th><th>상태</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    h += `<tr><td>${esc(r.platform)}</td><td>${esc(r.name)}</td><td class="num">${fmtNum(r.qty)}개</td><td class="num">${fmtWon(r.revenue)}</td><td class="num">${fmtWon(r.margin)}</td><td class="num">${fmtPct(r.margin_rate)}</td><td><span class="badge critical">판매가/원가 재검토</span></td></tr>`;
+  });
+  h += '</tbody>';
+  document.getElementById('negTable').innerHTML = h;
+}
+
+let allSort = {key:'margin', dir:-1};
+function renderAllTable(products){
+  document.getElementById('allTitle').textContent = `전체 상품 (${products.length}종)`;
+  const q = (document.getElementById('allSearch').value||'').toLowerCase();
+  const cols = [
+    {key:'platform', label:'플랫폼'},
+    {key:'name', label:'상품명'},
+    {key:'orders', label:'주문건수', num:true},
+    {key:'qty', label:'판매량', num:true},
+    {key:'revenue', label:'매출', num:true, fmt:fmtWon},
+    {key:'margin', label:'마진', num:true, fmt:v=> v==null? '-' : fmtWon(v)},
+    {key:'margin_rate', label:'마진율', num:true, fmt:v=> v==null? '-' : fmtPct(v)},
+  ];
+  let rows = products.filter(p=>p.name.toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    const av=a[allSort.key], bv=b[allSort.key];
+    if (typeof av==='string') return allSort.dir*String(av).localeCompare(String(bv));
+    return allSort.dir*((av||0)-(bv||0));
+  });
+  const table = document.getElementById('allTable');
+  let thead = '<thead><tr>' + cols.map(c=>`<th data-key="${c.key}">${c.label}</th>`).join('') + '</tr></thead>';
+  let tbody = '<tbody>' + rows.map(r=> '<tr>' + cols.map(c=>{
+    const raw = r[c.key];
+    const val = c.fmt ? c.fmt(raw) : (c.num ? fmtNum(raw) : esc(raw));
+    return `<td class="${c.num?'num':''}">${val}</td>`;
+  }).join('') + '</tr>').join('') + '</tbody>';
+  table.innerHTML = thead+tbody;
+  table.querySelectorAll('th').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.key;
+      allSort.dir = (allSort.key===key)? -allSort.dir : -1;
+      allSort.key = key;
+      renderAllTable(currentProducts);
+    });
+  });
+}
+document.getElementById('allSearch').addEventListener('input', ()=> renderAllTable(currentProducts));
+</script>
+</body>
+</html>
